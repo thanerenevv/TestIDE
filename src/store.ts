@@ -1,4 +1,11 @@
-import type { ConnectionStatus, FileNode, ProjectInfo, SerialPort } from "./types";
+import type {
+  ConnectionStatus,
+  FileNode,
+  ProjectInfo,
+  SerialPort,
+  Stm32EnvironmentStatus,
+  Stm32FlashTool,
+} from "./types";
 
 export interface OpenTab {
   path: string;
@@ -22,6 +29,8 @@ export interface AppState {
   monitorRunning: boolean;
   pioFound: boolean | null;
   idfFound: boolean | null;
+  stm32Env: Stm32EnvironmentStatus | null;
+  selectedFlashTool: Stm32FlashTool | null;
 }
 
 type Listener = (state: AppState) => void;
@@ -43,6 +52,8 @@ class Store extends EventTarget {
     monitorRunning: false,
     pioFound: null,
     idfFound: null,
+    stm32Env: null,
+    selectedFlashTool: null,
   };
 
   private listeners: Listener[] = [];

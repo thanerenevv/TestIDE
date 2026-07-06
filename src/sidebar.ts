@@ -1,5 +1,6 @@
 import { clear, h } from "./dom";
 import { fileGlyph } from "./fileIcons";
+import { folderIcon } from "./icons";
 import type { FileNode, SerialPort } from "./types";
 
 export interface TreeCallbacks {
@@ -29,7 +30,7 @@ export function renderTree(
   });
   if (nodes.length === 0) {
     container.append(
-      h("div", { class: "empty-hint" }, ["This folder is empty."]),
+      h("div", { class: "empty-hint" }, [folderIcon(28), "This folder is empty."]),
     );
     return;
   }

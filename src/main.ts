@@ -1,6 +1,7 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   api,
+  onAiFileChanged,
   onBoardsUpdated,
   onMenuAction,
   onMonitorDone,
@@ -8,12 +9,16 @@ import {
   onTaskDone,
   onTaskLine,
 } from "./api";
+import { AiPanel } from "./aiPanel";
 import { showContextMenu, type MenuItem } from "./contextMenu";
 import { confirmModal, promptModal } from "./dialogs";
 import { clear, h } from "./dom";
 import { EditorHost } from "./editor";
 import { classifyError } from "./errors";
+import { EspLibrariesPanel } from "./espLibrariesPanel";
 import { languageForFile } from "./fileIcons";
+import { fileIcon } from "./icons";
+import { LibrariesPanel } from "./librariesPanel";
 import { LogView } from "./logView";
 import { openInstallToolchainModal, openNewProjectModal } from "./newProjectModal";
 import { makeResizerH, makeResizerV } from "./resizer";
@@ -22,7 +27,8 @@ import { loadSettings, saveSettings, type Settings } from "./settings";
 import { openSettingsModal } from "./settingsModal";
 import { store } from "./store";
 import { TerminalPane } from "./terminal";
-import type { ProjectInfo, TaskKind } from "./types";
+import { showToast } from "./toast";
+import type { ProjectInfo, Stm32FlashTool, TaskKind } from "./types";
 
 const BAUD_RATES = [9600, 19200, 38400, 57600, 74880, 115200, 230400, 460800, 921600];
 
@@ -32,13 +38,26 @@ class App {
   private titlebar!: HTMLElement;
   private projectNameEl!: HTMLElement;
   private envSelect!: HTMLSelectElement;
+  private flashToolSelect!: HTMLSelectElement;
+  private flashToolPicker!: HTMLElement;
   private buildBtn!: HTMLButtonElement;
   private flashBtn!: HTMLButtonElement;
   private cleanBtn!: HTMLButtonElement;
   private stopBtn!: HTMLButtonElement;
+  private sidebarToggleBtn!: HTMLButtonElement;
+  private panelToggleBtn!: HTMLButtonElement;
 
   private body!: HTMLElement;
+  private activityBar!: HTMLElement;
+  private activityExplorerBtn!: HTMLElement;
+  private activityLibrariesBtn!: HTMLElement;
+  private activityAiBtn!: HTMLElement;
+  private sidebarView: "explorer" | "libraries" | "ai" = "explorer";
   private sidebar!: HTMLElement;
+  private explorerView!: HTMLElement;
+  private librariesPanel = new LibrariesPanel();
+  private espLibrariesPanel = new EspLibrariesPanel();
+  private aiPanel = new AiPanel();
   private treeEl!: HTMLElement;
   private portSelect!: HTMLSelectElement;
   private portDetail!: HTMLElement;
@@ -81,6 +100,7 @@ class App {
   private taskLogBuffer = "";
   private pioVersionText = "PlatformIO not found";
   private idfVersionText = "ESP-IDF not found";
+  private stm32VersionText = "STM32 toolchain not found";
   private sidebarHidden = false;
   private panelHidden = false;
   private settings: Settings = loadSettings();
@@ -94,6 +114,7 @@ class App {
     this.editorHost = new EditorHost(this.editorHostEl, this.settings);
     this.editorHost.onDirtyChange = (path, dirty) => this.setTabDirty(path, dirty);
     this.editorHost.onSave = (path) => this.saveFile(path);
+    this.applySettings();
 
     window.addEventListener("keydown", (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
@@ -152,6 +173,16 @@ class App {
     this.envPickerLabel = h("span", { style: "color: var(--text-2); font-size: 11px" }, ["Env"]);
     const envPicker = h("div", { class: "picker" }, [this.envPickerLabel, this.envSelect]);
 
+    this.flashToolSelect = h("select", {}, []) as HTMLSelectElement;
+    this.flashToolSelect.addEventListener("change", () => {
+      store.set({ selectedFlashTool: this.flashToolSelect.value as Stm32FlashTool });
+    });
+    this.flashToolPicker = h(
+      "div",
+      { class: "picker", style: "display:none" },
+      [h("span", { style: "color: var(--text-2); font-size: 11px" }, ["Flash via"]), this.flashToolSelect],
+    );
+
     this.buildBtn = h("button", { class: "btn" }, ["Build"]) as HTMLButtonElement;
     this.buildBtn.addEventListener("click", () => this.runTask("build"));
 
@@ -167,6 +198,20 @@ class App {
     this.stopBtn = h("button", { class: "btn btn-danger" }, ["Stop"]) as HTMLButtonElement;
     this.stopBtn.addEventListener("click", () => this.stopActive());
 
+    this.sidebarToggleBtn = h(
+      "button",
+      { class: "icon-btn active", title: "Toggle Sidebar (⌘⇧E)" },
+      ["◧"],
+    ) as HTMLButtonElement;
+    this.sidebarToggleBtn.addEventListener("click", () => this.toggleSidebar());
+
+    this.panelToggleBtn = h(
+      "button",
+      { class: "icon-btn active", title: "Toggle Panel (⌘J)" },
+      ["⬓"],
+    ) as HTMLButtonElement;
+    this.panelToggleBtn.addEventListener("click", () => this.togglePanel());
+
     const settingsBtn = h("button", { class: "icon-btn", title: "Settings" }, ["⚙"]);
     settingsBtn.addEventListener("click", () => this.openSettings());
 
@@ -175,12 +220,14 @@ class App {
       h("div", { class: "toolbar-group" }, [openBtn, newBtn]),
       h("div", { class: "toolbar-spacer" }, []),
       envPicker,
+      this.flashToolPicker,
       h("div", { class: "toolbar-group" }, [
         this.buildBtn,
         this.flashBtn,
         this.cleanBtn,
         this.stopBtn,
       ]),
+      h("div", { class: "toolbar-group" }, [this.sidebarToggleBtn, this.panelToggleBtn]),
       settingsBtn,
     ]);
   }
@@ -217,13 +264,40 @@ class App {
       h("div", { style: "padding: 0 12px 10px" }, [this.portDetail]),
     ]);
 
-    this.sidebar = h("div", { class: "sidebar" }, [filesSection, devicesSection]);
+    this.explorerView = h("div", { class: "explorer-view" }, [filesSection, devicesSection]);
+
+    this.activityExplorerBtn = h(
+      "button",
+      { class: "activity-btn active", title: "Explorer" },
+      ["▤"],
+    );
+    this.activityExplorerBtn.addEventListener("click", () => this.switchSidebarView("explorer"));
+    this.activityLibrariesBtn = h(
+      "button",
+      { class: "activity-btn", title: "Libraries" },
+      ["▦"],
+    );
+    this.activityLibrariesBtn.addEventListener("click", () => this.switchSidebarView("libraries"));
+    this.activityAiBtn = h("button", { class: "activity-btn", title: "AI Assistant" }, ["✦"]);
+    this.activityAiBtn.addEventListener("click", () => this.switchSidebarView("ai"));
+    this.activityBar = h("div", { class: "activity-bar" }, [
+      this.activityExplorerBtn,
+      this.activityLibrariesBtn,
+    ]);
+
+    this.sidebar = h("div", { class: "sidebar" }, [
+      this.explorerView,
+      this.librariesPanel.el,
+      this.espLibrariesPanel.el,
+      this.aiPanel.el,
+    ]);
     this.sidebarResizer = h("div", { class: "resizer-v" });
 
     // --- editor area ---
     this.tabBar = h("div", { class: "tab-bar" }, []);
     this.editorHostEl = h("div", { class: "editor-host" }, []);
     this.editorEmptyEl = h("div", { class: "editor-empty" }, [
+      fileIcon(36),
       h("div", {}, ["No file open"]),
       h("div", { style: "font-size: 11px" }, [
         "Select a file from the Explorer to start editing",
@@ -236,10 +310,50 @@ class App {
     ]);
 
     this.body = h("div", { class: "body" }, [
+      this.activityBar,
       this.sidebar,
       this.sidebarResizer,
       this.editorArea,
     ]);
+
+    this.switchSidebarView("explorer");
+  }
+
+  private switchSidebarView(view: "explorer" | "libraries" | "ai") {
+    this.sidebarView = view;
+    this.activityExplorerBtn.classList.toggle("active", view === "explorer");
+    this.activityLibrariesBtn.classList.toggle("active", view === "libraries");
+    this.activityAiBtn.classList.toggle("active", view === "ai");
+    this.explorerView.style.display = view === "explorer" ? "flex" : "none";
+    this.syncLibrariesPanelVisibility();
+    this.aiPanel.el.style.display = view === "ai" ? "flex" : "none";
+  }
+
+  /** Only one libraries panel is ever shown: the ESP-IDF Components panel
+   * for a native ESP-IDF project, the PlatformIO one otherwise — swapped in
+   * automatically based on the open project's kind rather than being a
+   * separate activity-bar tab. */
+  private syncLibrariesPanelVisibility() {
+    const isLibrariesView = this.sidebarView === "libraries";
+    const s = store.get();
+    const showEspPanel = isLibrariesView && s.project?.kind === "esp-idf";
+    const showPioPanel = isLibrariesView && s.project?.kind === "platformio";
+    this.espLibrariesPanel.el.style.display = showEspPanel ? "flex" : "none";
+    this.librariesPanel.el.style.display = showPioPanel ? "flex" : "none";
+  }
+
+  /** The AI tab only exists in the activity bar while AI features are
+   * enabled in Settings — added/removed here rather than just hidden with
+   * CSS, so the feature is genuinely absent (not just invisible) when off. */
+  private syncAiActivityTab() {
+    const enabled = this.settings.ai.enabled;
+    const alreadyPresent = this.activityAiBtn.isConnected;
+    if (enabled && !alreadyPresent) {
+      this.activityBar.append(this.activityAiBtn);
+    } else if (!enabled && alreadyPresent) {
+      this.activityAiBtn.remove();
+      if (this.sidebarView === "ai") this.switchSidebarView("explorer");
+    }
   }
 
   private buildBottomPanel() {
@@ -381,6 +495,24 @@ class App {
     });
 
     onMenuAction((action) => this.handleMenuAction(action));
+
+    onAiFileChanged(async (path) => {
+      this.refreshTree();
+      if (!this.editorHost?.isOpen(path)) return;
+      if (this.editorHost.isDirty(path)) {
+        showToast(
+          `AI updated ${path.split("/").pop()} on disk — you have unsaved local edits open, so it wasn't reloaded.`,
+          "info",
+        );
+        return;
+      }
+      try {
+        const contents = await api.readFile(path);
+        this.editorHost.refreshFileContents(path, contents);
+      } catch {
+        // File may have been removed/renamed as part of the same turn; ignore.
+      }
+    });
   }
 
   private handleMenuAction(action: string) {
@@ -449,27 +581,36 @@ class App {
     this.refreshUI();
   }
 
+  /** Hides both the file explorer and the activity bar (the icon strip that
+   * switches between Explorer/Libraries/AI) — matching VS Code's behavior
+   * when the primary sidebar is fully collapsed, so the editor can go
+   * full-width instead of just losing the file tree. */
   private toggleSidebar() {
     this.sidebarHidden = !this.sidebarHidden;
     this.sidebar.style.display = this.sidebarHidden ? "none" : "flex";
     this.sidebarResizer.style.display = this.sidebarHidden ? "none" : "block";
+    this.activityBar.style.display = this.sidebarHidden ? "none" : "flex";
+    this.sidebarToggleBtn.classList.toggle("active", !this.sidebarHidden);
     this.editorHost?.layout();
   }
 
   private togglePanel() {
     this.panelHidden = !this.panelHidden;
+    this.panelToggleBtn.classList.toggle("active", !this.panelHidden);
     this.refreshUI();
   }
 
   private showMonitorPanel() {
     this.panelHidden = false;
+    this.panelToggleBtn.classList.toggle("active", true);
     this.switchBottomTab("monitor");
   }
 
   private async checkEnvironments() {
-    const [pio, idf] = await Promise.all([
+    const [pio, idf, stm32] = await Promise.all([
       api.checkEnvironment(),
       api.checkIdfEnvironment(),
+      api.checkStm32Environment(),
     ]);
 
     this.pioVersionText = pio.pio_found
@@ -480,9 +621,18 @@ class App {
         ? `ESP-IDF ${(idf.idf_version ?? "").replace(/^ESP-IDF\s*/i, "") || "ready"}`
         : "ESP-IDF found but not initialized (run install.sh)"
       : "ESP-IDF not found";
+    this.stm32VersionText = stm32.cubeide_found
+      ? "STM32CubeIDE ready"
+      : stm32.arm_gcc_found
+        ? "STM32 (arm-none-eabi-gcc) ready"
+        : "STM32 toolchain not found";
 
-    store.set({ pioFound: pio.pio_found, idfFound: idf.idf_found && idf.env_ready });
-    this.toolchainInfoEl.textContent = `${this.pioVersionText} · ${this.idfVersionText}`;
+    store.set({
+      pioFound: pio.pio_found,
+      idfFound: idf.idf_found && idf.env_ready,
+      stm32Env: stm32,
+    });
+    this.toolchainInfoEl.textContent = `${this.pioVersionText} · ${this.idfVersionText} · ${this.stm32VersionText}`;
   }
 
   private showBanner(msg: string) {
@@ -510,7 +660,8 @@ class App {
 
   private async newProjectFlow() {
     const s = store.get();
-    if (!s.pioFound && !s.idfFound) {
+    const stm32Available = !!s.stm32Env?.cubemx_found;
+    if (!s.pioFound && !s.idfFound && !stm32Available) {
       openInstallToolchainModal(async () => {
         await this.checkEnvironments();
         this.newProjectFlow();
@@ -521,7 +672,7 @@ class App {
       async (info) => {
         await this.applyProject(info);
       },
-      { pioAvailable: !!s.pioFound, idfAvailable: !!s.idfFound },
+      { pioAvailable: !!s.pioFound, idfAvailable: !!s.idfFound, stm32Available },
     );
   }
 
@@ -541,6 +692,8 @@ class App {
     if (!store.get().monitorRunning) {
       this.baudSelect.value = String(this.settings.defaultBaud);
     }
+    this.syncAiActivityTab();
+    this.aiPanel.setAiSettings(this.settings.ai);
   }
 
   private async loadProject(path: string) {
@@ -559,8 +712,18 @@ class App {
         ? (info.envs[0]?.name ?? null)
         : info.kind === "esp-idf"
           ? info.target
-          : null;
-    store.set({ project: info, selectedEnv, tabs: [], activeTab: null });
+          : info.kind === "stm32"
+            ? (info.build_configs[0] ?? null)
+            : null;
+    const selectedFlashTool: Stm32FlashTool | null =
+      info.kind === "stm32"
+        ? info.flash_tools.programmer_cli
+          ? "programmer-cli"
+          : info.flash_tools.openocd
+            ? "openocd"
+            : null
+        : null;
+    store.set({ project: info, selectedEnv, selectedFlashTool, tabs: [], activeTab: null });
     this.editorHost?.clear();
     this.buildLog.clearLog();
     await this.refreshTree();
@@ -568,7 +731,7 @@ class App {
 
     if (info.kind === "unknown") {
       this.showBanner(
-        `${info.name} doesn't look like a PlatformIO or ESP-IDF project — you can still browse and edit files, but build/flash actions are unavailable.`,
+        `${info.name} doesn't look like a PlatformIO, ESP-IDF or STM32CubeIDE project — you can still browse and edit files, but build/flash actions are unavailable.`,
       );
     } else if (info.kind === "platformio" && !store.get().pioFound) {
       this.showBanner(
@@ -582,6 +745,20 @@ class App {
       } else if (!info.target) {
         this.showBanner(
           `${info.name} has no target configured yet — pick a chip from the Target dropdown to run \`idf.py set-target\` before building.`,
+        );
+      } else {
+        this.hideBanner();
+      }
+    } else if (info.kind === "stm32") {
+      if (!this.stm32ToolchainReady(info)) {
+        const hint =
+          info.flavor === "cube-ide"
+            ? "STM32CubeIDE was not found — install it from st.com, then restart TestIDE."
+            : "arm-none-eabi-gcc was not found — install the GNU Arm Embedded Toolchain, then restart TestIDE.";
+        this.showBanner(hint);
+      } else if (selectedFlashTool === null) {
+        this.showBanner(
+          "Neither STM32_Programmer_CLI nor OpenOCD was found — install STM32CubeProgrammer or OpenOCD to flash this project.",
         );
       } else {
         this.hideBanner();
@@ -809,6 +986,12 @@ class App {
     if (!this.toolchainReady()) {
       if (s.project.kind === "esp-idf" && !s.project.target) {
         this.showBanner("Select a target from the dropdown before building.");
+      } else if (s.project.kind === "stm32") {
+        this.showBanner(
+          s.project.flavor === "cube-ide"
+            ? "STM32CubeIDE not found — install it before building."
+            : "arm-none-eabi-gcc not found — install the GNU Arm Embedded Toolchain before building.",
+        );
       } else {
         this.showBanner(
           s.project.kind === "platformio"
@@ -818,7 +1001,15 @@ class App {
       }
       return;
     }
-    if (kind === "upload" && !s.selectedPort) {
+    if (kind === "upload" && s.project.kind === "stm32" && !s.selectedFlashTool) {
+      store.set({
+        status: "error",
+        statusMessage: "No flash tool available — install STM32_Programmer_CLI or OpenOCD",
+      });
+      this.updateStatusbar();
+      return;
+    }
+    if (kind === "upload" && s.project.kind !== "stm32" && !s.selectedPort) {
       store.set({ status: "error", statusMessage: "No board detected — plug in a board first" });
       this.updateStatusbar();
       return;
@@ -841,7 +1032,11 @@ class App {
         ? `$ pio run -e ${s.selectedEnv ?? "<default>"}${
             kind === "upload" ? " -t upload" : kind === "clean" ? " -t clean" : ""
           }`
-        : `$ idf.py ${kind === "build" ? "build" : kind === "upload" ? "flash" : "fullclean"}`;
+        : s.project.kind === "stm32"
+          ? `$ stm32 ${kind} (${s.project.flavor}${s.selectedEnv ? `, ${s.selectedEnv}` : ""}${
+              kind === "upload" ? `, via ${s.selectedFlashTool}` : ""
+            })`
+          : `$ idf.py ${kind === "build" ? "build" : kind === "upload" ? "flash" : "fullclean"}`;
     this.buildLog.append(preview, "system");
     this.updateStatusbar();
     this.updateToolbarButtons();
@@ -854,6 +1049,20 @@ class App {
           await api.uploadProject(s.project.root, s.selectedEnv, s.selectedPort, taskId);
         } else {
           await api.cleanProject(s.project.root, s.selectedEnv, taskId);
+        }
+      } else if (s.project.kind === "stm32") {
+        if (kind === "build") {
+          await api.stm32Build(s.project.root, s.project.flavor, s.selectedEnv, taskId);
+        } else if (kind === "upload") {
+          await api.stm32Flash(
+            s.project.root,
+            s.project.flavor,
+            s.selectedEnv,
+            s.selectedFlashTool!,
+            taskId,
+          );
+        } else {
+          await api.stm32Clean(s.project.root, s.project.flavor, s.selectedEnv, taskId);
         }
       } else {
         if (kind === "build") {
@@ -991,10 +1200,14 @@ class App {
     this.updateStatusbar();
     this.updateToolbarButtons();
     try {
-      if (s.project.kind === "platformio") {
-        await api.startMonitor(s.project.root, s.selectedEnv, s.selectedPort, baud);
-      } else {
+      if (s.project.kind === "esp-idf") {
         await api.idfMonitor(s.project.root, s.selectedPort, baud);
+      } else {
+        // PlatformIO's `pio device monitor` is a plain serial terminal that
+        // works standalone (no platformio.ini required), so it doubles as
+        // the generic monitor for STM32 and unrecognized projects too.
+        const env = s.project.kind === "platformio" ? s.selectedEnv : null;
+        await api.startMonitor(s.project.root, env, s.selectedPort, baud);
       }
     } catch (e) {
       this.monitorLog.append(String(e), "error-text");
@@ -1106,12 +1319,22 @@ class App {
     this.statusText.textContent = s.statusMessage;
   }
 
+  /** Whether the build toolchain an STM32 project's flavor needs is present
+   * — Makefile/CMake flavors need arm-none-eabi-gcc, CubeIde needs the full
+   * STM32CubeIDE install for its headless builder. */
+  private stm32ToolchainReady(project: Extract<ProjectInfo, { kind: "stm32" }>): boolean {
+    const env = store.get().stm32Env;
+    if (!env) return false;
+    return project.flavor === "cube-ide" ? env.cubeide_found : env.arm_gcc_found;
+  }
+
   /** Whether the toolchain the currently open project needs is ready to run. */
   private toolchainReady(): boolean {
     const s = store.get();
     if (!s.project) return false;
     if (s.project.kind === "platformio") return !!s.pioFound;
     if (s.project.kind === "esp-idf") return !!s.idfFound && !!s.project.target;
+    if (s.project.kind === "stm32") return this.stm32ToolchainReady(s.project);
     return false;
   }
 
@@ -1120,8 +1343,10 @@ class App {
     const busy = !!s.activeTaskId;
     const hasProject = !!s.project;
     const ready = this.toolchainReady();
+    const isStm32 = s.project?.kind === "stm32";
+    const flashBlocked = isStm32 ? !s.selectedFlashTool : !s.selectedPort;
     this.buildBtn.disabled = busy || !hasProject || !ready;
-    this.flashBtn.disabled = busy || !hasProject || !ready || !s.selectedPort;
+    this.flashBtn.disabled = busy || !hasProject || !ready || flashBlocked;
     this.cleanBtn.disabled = busy || !hasProject || !ready;
     this.stopBtn.disabled = !busy && !s.monitorRunning;
   }
@@ -1140,7 +1365,7 @@ class App {
       for (const env of s.project.envs) {
         this.envSelect.append(h("option", { value: env.name }, [env.name]));
       }
-    } else {
+    } else if (s.project.kind === "esp-idf") {
       this.envPickerLabel.textContent = "Target";
       if (!s.project.target) {
         this.envSelect.append(h("option", { value: "" }, ["Select a target…"]));
@@ -1148,8 +1373,41 @@ class App {
       for (const target of s.project.available_targets) {
         this.envSelect.append(h("option", { value: target }, [target]));
       }
+    } else {
+      this.envPickerLabel.textContent = "Config";
+      const configs = s.project.build_configs.length ? s.project.build_configs : ["Debug"];
+      for (const config of configs) {
+        this.envSelect.append(h("option", { value: config }, [config]));
+      }
     }
     if (s.selectedEnv) this.envSelect.value = s.selectedEnv;
+  }
+
+  private updateFlashToolPicker() {
+    const s = store.get();
+    if (s.project?.kind !== "stm32") {
+      this.flashToolPicker.style.display = "none";
+      return;
+    }
+    const { flash_tools } = s.project;
+    const available: Stm32FlashTool[] = [
+      ...(flash_tools.programmer_cli ? (["programmer-cli"] as const) : []),
+      ...(flash_tools.openocd ? (["openocd"] as const) : []),
+    ];
+    if (available.length <= 1) {
+      this.flashToolPicker.style.display = "none";
+      return;
+    }
+    this.flashToolPicker.style.display = "flex";
+    clear(this.flashToolSelect);
+    const labels: Record<Stm32FlashTool, string> = {
+      "programmer-cli": "STM32_Programmer_CLI",
+      openocd: "OpenOCD",
+    };
+    for (const tool of available) {
+      this.flashToolSelect.append(h("option", { value: tool }, [labels[tool]]));
+    }
+    if (s.selectedFlashTool) this.flashToolSelect.value = s.selectedFlashTool;
   }
 
   private async onEnvPickerChange() {
@@ -1164,6 +1422,27 @@ class App {
       return;
     }
     await this.changeIdfTarget(value);
+  }
+
+  private updateLibrariesPanel() {
+    const s = store.get();
+    if (s.project && s.project.kind === "platformio") {
+      this.librariesPanel.setProject(s.project.root, s.selectedEnv);
+    } else {
+      this.librariesPanel.setProject(null, null);
+    }
+    this.espLibrariesPanel.setProject(s.project && s.project.kind === "esp-idf" ? s.project.root : null);
+    this.syncLibrariesPanelVisibility();
+  }
+
+  private updateAiPanel() {
+    const s = store.get();
+    this.aiPanel.setProject(s.project?.root ?? null);
+    if (s.activeTab && this.editorHost) {
+      this.aiPanel.setActiveFile(s.activeTab, this.editorHost.getValue(s.activeTab) ?? null);
+    } else {
+      this.aiPanel.setActiveFile(null, null);
+    }
   }
 
   private updateDevices() {
@@ -1205,7 +1484,10 @@ class App {
     this.bottomPanel.style.display = s.project && !this.panelHidden ? "flex" : "none";
 
     this.updateEnvPicker();
+    this.updateFlashToolPicker();
     this.updateDevices();
+    this.updateLibrariesPanel();
+    this.updateAiPanel();
     this.updateStatusbar();
     this.updateToolbarButtons();
     this.updateBottomTabsUI();

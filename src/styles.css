@@ -1,36 +1,51 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
 :root {
   color-scheme: dark;
 
-  --bg-0: #1e1f22; /* window background */
-  --bg-1: #232427; /* sidebar / panels */
-  --bg-2: #28292c; /* editor background */
-  --bg-3: #2f3033; /* raised surfaces (dropdowns, tabs) */
-  --bg-4: #38393d; /* hover state */
-  --bg-titlebar: #262729;
+  /* Deep, slightly-blue near-blacks instead of neutral grey — reads as a
+     considered editor palette rather than a generic flat-dark reskin. */
+  --bg-0: #0b0e14; /* window background */
+  --bg-1: #10141b; /* sidebar / panels */
+  --bg-2: #0d1117; /* editor background — the focal canvas */
+  --bg-3: #161b22; /* raised surfaces (dropdowns, tabs, cards) */
+  --bg-4: #1f2630; /* hover state */
+  --bg-titlebar: #0a0d12;
 
-  --border: #3a3b3f;
-  --border-subtle: #2c2d30;
+  --border: #2a313c;
+  --border-subtle: #1a1f27;
 
-  --text-0: #eceeee;
-  --text-1: #b8bcc0;
-  --text-2: #8a8e93;
-  --text-disabled: #5b5e63;
+  --text-0: #e6edf3;
+  --text-1: #9da7b3;
+  --text-2: #7d8590;
+  --text-disabled: #4d5561;
 
-  --accent: #4a9eff;
-  --accent-hover: #64acff;
-  --accent-dim: rgba(74, 158, 255, 0.16);
+  --accent: #58a6ff;
+  --accent-hover: #79b8ff;
+  --accent-dim: rgba(88, 166, 255, 0.15);
 
-  --green: #4fc16a;
-  --orange: #e5a13b;
-  --red: #e5594f;
-  --purple: #b183e0;
+  --green: #3fb950;
+  --green-hover: #56d367;
+  --green-dim: rgba(63, 185, 80, 0.15);
+  --orange: #d29922;
+  --red: #f85149;
+  --purple: #bc8cff;
 
-  --radius-sm: 5px;
-  --radius-md: 8px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
 
-  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.32);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  --font-ui: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Helvetica, Arial, sans-serif;
-  --font-mono: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Monaco, "Cascadia Code",
+    monospace;
 }
 
 * {
@@ -49,6 +64,22 @@ body {
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-dim);
+  border-radius: var(--radius-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 #app {
@@ -88,21 +119,22 @@ textarea {
 /* ---------- Title bar / toolbar ---------- */
 
 .titlebar {
-  height: 52px;
-  min-height: 52px;
+  height: 36px;
+  min-height: 36px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 14px 0 84px; /* space for macOS traffic lights */
+  gap: 8px;
+  padding: 0 10px 0 84px; /* space for macOS traffic lights */
   background: var(--bg-titlebar);
   border-bottom: 1px solid var(--border-subtle);
+  box-shadow: var(--bevel);
 }
 
 .titlebar .project-name {
   font-weight: 600;
   color: var(--text-1);
-  font-size: 12px;
-  margin-right: 6px;
+  font-size: 11px;
+  margin-right: 4px;
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -112,7 +144,7 @@ textarea {
 .toolbar-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .toolbar-spacer {
@@ -122,24 +154,24 @@ textarea {
 .picker {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   background: var(--bg-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 5px 10px;
+  padding: 3px 8px;
   color: var(--text-0);
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
-  max-width: 210px;
+  max-width: 180px;
 }
 
 .picker select {
   background: transparent;
   border: none;
   color: inherit;
-  font-size: 12px;
+  font-size: 11px;
   outline: none;
-  max-width: 170px;
+  max-width: 140px;
   text-overflow: ellipsis;
 }
 
@@ -169,17 +201,19 @@ textarea {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.1s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
 }
 .btn:hover {
   background: var(--bg-4);
 }
 .btn:active {
-  background: #222327;
+  background: #0e1218;
+  transform: translateY(1px);
 }
 .btn:disabled {
   opacity: 0.4;
   cursor: default;
+  transform: none;
 }
 .btn:disabled:hover {
   background: var(--bg-3);
@@ -193,6 +227,7 @@ textarea {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+  box-shadow: var(--shadow-sm);
 }
 .btn-primary:hover {
   background: var(--accent-hover);
@@ -201,6 +236,7 @@ textarea {
   background: var(--bg-3);
   border-color: var(--border);
   color: var(--text-disabled);
+  box-shadow: none;
 }
 
 .btn-danger {
@@ -212,13 +248,45 @@ textarea {
   filter: brightness(1.1);
 }
 
+/* Flash/upload is the "make it happen on hardware" action — a dedicated
+   run-green sets it apart from the blue used for everyday build/clean
+   actions, matching the run/upload convention most IDEs use. */
 .flash-btn {
   padding: 6px 16px;
   font-weight: 600;
+  background: var(--green);
+  border-color: var(--green);
+  box-shadow: var(--shadow-sm);
+}
+.flash-btn:hover {
+  background: var(--green-hover);
+}
+.flash-btn:disabled {
+  background: var(--bg-3);
+  border-color: var(--border);
+  color: var(--text-disabled);
+  box-shadow: none;
 }
 
 .flash-btn .icon {
   font-size: 13px;
+}
+
+/* Titlebar buttons run thinner than the rest of the app's `.btn`s so the
+   whole toolbar reads as one compact strip alongside the pickers. */
+.titlebar .btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  gap: 4px;
+}
+.titlebar .btn-icon {
+  padding: 4px 6px;
+}
+.titlebar .flash-btn {
+  padding: 4px 12px;
+}
+.titlebar .flash-btn .icon {
+  font-size: 11px;
 }
 
 /* ---------- Body layout ---------- */
@@ -229,6 +297,40 @@ textarea {
   min-height: 0;
 }
 
+.activity-bar {
+  width: 44px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 8px;
+  background: var(--bg-titlebar);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.activity-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 15px;
+}
+.activity-btn:hover {
+  background: var(--bg-4);
+  color: var(--text-0);
+}
+.activity-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
 .sidebar {
   width: 260px;
   min-width: 160px;
@@ -237,6 +339,15 @@ textarea {
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.explorer-view,
+.libraries-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -307,6 +418,16 @@ textarea {
   color: var(--text-0);
 }
 
+/* Layout toggle buttons (sidebar/panel) stay visibly "pressed" while the
+   panel they control is shown, same as VS Code's layout-control icons. */
+.titlebar .icon-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.titlebar .icon-btn.active:hover {
+  background: var(--accent-dim);
+}
+
 .tree {
   overflow-y: auto;
   flex: 1;
@@ -323,6 +444,7 @@ textarea {
   white-space: nowrap;
   color: var(--text-1);
   font-size: 12.5px;
+  transition: background 0.12s ease;
 }
 
 .tree-row:hover {
@@ -332,6 +454,7 @@ textarea {
 .tree-row.selected {
   background: var(--accent-dim);
   color: var(--text-0);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .tree-row .chevron {
@@ -372,12 +495,14 @@ textarea {
   cursor: pointer;
   border-radius: 4px;
   margin: 0 4px;
+  transition: background 0.12s ease;
 }
 .device-row:hover {
   background: var(--bg-3);
 }
 .device-row.selected {
   background: var(--accent-dim);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .device-row .port-name {
   font-size: 12px;
@@ -390,10 +515,27 @@ textarea {
 }
 
 .empty-hint {
-  padding: 10px 12px;
+  padding: 24px 16px;
   color: var(--text-2);
   font-size: 12px;
   line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.empty-hint svg {
+  color: var(--text-disabled);
+}
+
+/* Plain-text empty hints (search status, inline errors) shouldn't get the
+   big centered icon treatment — only ones we explicitly decorate do. */
+.empty-hint:not(:has(svg)) {
+  padding: 10px 12px;
+  flex-direction: row;
+  text-align: left;
 }
 
 /* ---------- Editor ---------- */
@@ -420,15 +562,18 @@ textarea {
   padding: 0 8px 0 12px;
   height: 34px;
   border-right: 1px solid var(--border-subtle);
+  border-top: 2px solid transparent;
   color: var(--text-2);
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
   flex: none;
+  transition: color 0.12s ease;
 }
 .tab.active {
   background: var(--bg-2);
   color: var(--text-0);
+  border-top-color: var(--accent);
 }
 .tab:hover {
   color: var(--text-0);
@@ -474,6 +619,9 @@ textarea {
   flex-direction: column;
   gap: 10px;
 }
+.editor-empty svg {
+  color: var(--text-disabled);
+}
 
 /* ---------- Welcome screen ---------- */
 
@@ -516,8 +664,8 @@ textarea {
 .welcome-warning {
   margin-top: 4px;
   padding: 10px 14px;
-  background: rgba(229, 161, 59, 0.12);
-  border: 1px solid rgba(229, 161, 59, 0.3);
+  background: rgba(210, 153, 34, 0.12);
+  border: 1px solid rgba(210, 153, 34, 0.3);
   border-radius: var(--radius-sm);
   color: var(--orange);
   font-size: 12px;
@@ -567,19 +715,19 @@ textarea {
   height: 6px;
   border-radius: 50%;
   background: var(--green);
-  box-shadow: 0 0 0 0 rgba(79, 193, 106, 0.6);
+  box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.6);
   animation: pulse 1.6s infinite;
 }
 
 @keyframes pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(79, 193, 106, 0.5);
+    box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.5);
   }
   70% {
-    box-shadow: 0 0 0 5px rgba(79, 193, 106, 0);
+    box-shadow: 0 0 0 5px rgba(63, 185, 80, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(79, 193, 106, 0);
+    box-shadow: 0 0 0 0 rgba(63, 185, 80, 0);
   }
 }
 
@@ -768,7 +916,9 @@ textarea {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(4, 6, 10, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -778,13 +928,13 @@ textarea {
 .modal {
   background: var(--bg-1);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   width: 460px;
   max-width: 90vw;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg), var(--bevel);
 }
 
 .modal-header {
@@ -833,10 +983,12 @@ textarea {
   color: var(--text-0);
   font-size: 12.5px;
   outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .field input:focus,
 .field select:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
 .field-check {
@@ -921,6 +1073,7 @@ textarea {
 }
 .board-result.selected {
   background: var(--accent-dim);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .board-result .board-name {
   color: var(--text-0);
@@ -937,19 +1090,19 @@ textarea {
   gap: 8px;
   padding: 6px 14px;
   font-size: 12px;
-  background: rgba(229, 89, 79, 0.14);
+  background: rgba(248, 81, 73, 0.14);
   color: var(--red);
-  border-bottom: 1px solid rgba(229, 89, 79, 0.3);
+  border-bottom: 1px solid rgba(248, 81, 73, 0.3);
 }
 
 .context-menu {
   position: fixed;
   background: var(--bg-3);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   padding: 4px;
   min-width: 160px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-md), var(--bevel);
   z-index: 100;
 }
 
@@ -970,4 +1123,306 @@ textarea {
 .context-menu-item.danger:hover {
   background: var(--red);
   color: #fff;
+}
+
+/* ---------- Libraries panel ---------- */
+
+.libraries-env {
+  padding: 0 12px 6px;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.lib-search-row {
+  padding: 0 12px 8px;
+}
+
+.lib-search-row input {
+  width: 100%;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  color: var(--text-0);
+  font-size: 12px;
+  outline: none;
+}
+.lib-search-row input:focus {
+  border-color: var(--accent);
+}
+
+.lib-filter-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px 8px;
+}
+
+.lib-filter-tab {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  background: var(--bg-3);
+  border: 1px solid var(--border-subtle);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.lib-filter-tab:hover {
+  color: var(--text-0);
+  background: var(--bg-4);
+}
+.lib-filter-tab.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: transparent;
+}
+
+.lib-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.lib-item {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background 0.12s ease;
+}
+.lib-item:hover {
+  background: var(--bg-3);
+}
+.lib-item.busy {
+  opacity: 0.7;
+}
+
+.lib-item-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lib-item-info {
+  min-width: 0;
+}
+
+.lib-name {
+  color: var(--text-0);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.lib-owner {
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.lib-desc {
+  color: var(--text-1);
+  font-size: 11.5px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.lib-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.lib-version-select {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  color: var(--text-0);
+  font-size: 11px;
+  max-width: 90px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.lib-version-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.btn-sm {
+  padding: 4px 9px;
+  font-size: 11px;
+}
+
+.lib-status {
+  font-size: 11px;
+  color: var(--text-2);
+  min-height: 14px;
+}
+.lib-status.busy {
+  color: var(--accent);
+}
+.lib-error {
+  font-size: 11px;
+  color: var(--red);
+  min-height: 14px;
+}
+
+/* ---------- Toast notifications ---------- */
+
+.toast-container {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  padding: 9px 18px 9px 14px;
+  border-radius: var(--radius-full);
+  font-size: 12.5px;
+  font-weight: 500;
+  box-shadow: var(--shadow-md), var(--bevel);
+  max-width: 420px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateY(-140%);
+  opacity: 0;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease;
+}
+.toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+.toast.hide {
+  transform: translateY(-140%);
+  opacity: 0;
+}
+
+.toast::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--accent);
+}
+.toast-error::before {
+  background: var(--red);
+}
+.toast-info::before {
+  background: var(--text-2);
+}
+
+/* ---------- AI panel ---------- */
+
+.ai-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ai-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-bubble {
+  max-width: 92%;
+  padding: 8px 11px;
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-bubble-user {
+  align-self: flex-end;
+  background: var(--accent-dim);
+  color: var(--text-0);
+  border: 1px solid transparent;
+}
+
+.ai-bubble-assistant {
+  align-self: flex-start;
+  background: var(--bg-3);
+  color: var(--text-0);
+  border: 1px solid var(--border-subtle);
+}
+
+.ai-tool-row {
+  align-self: flex-start;
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 4px 9px;
+}
+
+.ai-tool-status {
+  display: none;
+  padding: 0 12px 6px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.ai-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ai-input {
+  flex: 1;
+  resize: none;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  color: var(--text-0);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  max-height: 120px;
+}
+.ai-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.ai-input:disabled {
+  opacity: 0.5;
 }

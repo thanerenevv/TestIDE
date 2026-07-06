@@ -31,13 +31,13 @@ export class TerminalPane {
     this.el.className = "terminal-pane";
 
     this.term = new Terminal({
-      fontFamily: "SF Mono, Menlo, Monaco, Cascadia Code, monospace",
+      fontFamily: "JetBrains Mono, SF Mono, Menlo, Monaco, Cascadia Code, monospace",
       fontSize: 12.5,
       theme: {
-        background: "#28292c",
-        foreground: "#eceeee",
-        cursor: "#4a9eff",
-        selectionBackground: "#4a9eff33",
+        background: "#0d1117",
+        foreground: "#e6edf3",
+        cursor: "#58a6ff",
+        selectionBackground: "#58a6ff33",
       },
       cursorBlink: true,
       scrollback: 5000,

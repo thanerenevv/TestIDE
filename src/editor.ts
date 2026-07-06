@@ -29,21 +29,21 @@ monaco.editor.defineTheme("embedforge-dark", {
     { token: "identifier", foreground: "eceeee" },
   ],
   colors: {
-    "editor.background": "#28292c",
-    "editor.foreground": "#eceeee",
-    "editorLineNumber.foreground": "#565860",
-    "editorLineNumber.activeForeground": "#b8bcc0",
-    "editor.selectionBackground": "#4a9eff33",
-    "editor.inactiveSelectionBackground": "#4a9eff1a",
-    "editorCursor.foreground": "#4a9eff",
-    "editorIndentGuide.background": "#333438",
-    "editorIndentGuide.activeBackground": "#4a4b50",
-    "editorGutter.background": "#28292c",
-    "editorWidget.background": "#2f3033",
-    "editorWidget.border": "#3a3b3f",
-    "editorSuggestWidget.background": "#2f3033",
-    "editorSuggestWidget.border": "#3a3b3f",
-    "minimap.background": "#232427",
+    "editor.background": "#0d1117",
+    "editor.foreground": "#e6edf3",
+    "editorLineNumber.foreground": "#4d5561",
+    "editorLineNumber.activeForeground": "#9da7b3",
+    "editor.selectionBackground": "#58a6ff33",
+    "editor.inactiveSelectionBackground": "#58a6ff1a",
+    "editorCursor.foreground": "#58a6ff",
+    "editorIndentGuide.background": "#1a1f27",
+    "editorIndentGuide.activeBackground": "#2a313c",
+    "editorGutter.background": "#0d1117",
+    "editorWidget.background": "#161b22",
+    "editorWidget.border": "#2a313c",
+    "editorSuggestWidget.background": "#161b22",
+    "editorSuggestWidget.border": "#2a313c",
+    "minimap.background": "#10141b",
     "scrollbarSlider.background": "#ffffff14",
     "scrollbarSlider.hoverBackground": "#ffffff22",
   },
@@ -78,7 +78,7 @@ export class EditorHost {
       automaticLayout: true,
       theme: "embedforge-dark",
       fontSize: this.fontSize,
-      fontFamily: "SF Mono, Menlo, Monaco, Cascadia Code, monospace",
+      fontFamily: "JetBrains Mono, SF Mono, Menlo, Monaco, Cascadia Code, monospace",
       minimap: { enabled: initial?.minimap ?? true },
       smoothScrolling: true,
       cursorBlinking: "smooth",
@@ -165,6 +165,24 @@ export class EditorHost {
   markSaved(path: string) {
     const entry = this.files.get(path);
     if (!entry) return;
+    entry.savedVersionId = entry.model.getAlternativeVersionId();
+    this.onDirtyChange?.(path, false);
+  }
+
+  isDirty(path: string): boolean {
+    const entry = this.files.get(path);
+    if (!entry) return false;
+    return entry.model.getAlternativeVersionId() !== entry.savedVersionId;
+  }
+
+  /** Replaces an open file's buffer with fresh on-disk contents — used when
+   * an external actor (the AI assistant) writes a file that's currently
+   * open and unmodified locally. Never called on a dirty buffer; callers
+   * check `isDirty` first so local unsaved edits are never clobbered. */
+  refreshFileContents(path: string, contents: string) {
+    const entry = this.files.get(path);
+    if (!entry) return;
+    entry.model.setValue(contents);
     entry.savedVersionId = entry.model.getAlternativeVersionId();
     this.onDirtyChange?.(path, false);
   }

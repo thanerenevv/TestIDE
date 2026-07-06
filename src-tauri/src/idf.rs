@@ -24,17 +24,88 @@ fn is_idf_root(path: &Path) -> bool {
     path.join("tools").join("idf.py").is_file()
 }
 
+/// One IDF checkout as recorded by Espressif's IDF Installation Manager
+/// (`eim`) in its `eim_idf.json` manifest.
+#[derive(Debug, Deserialize, Clone)]
+struct EimIdfInstall {
+    id: String,
+    #[allow(dead_code)]
+    name: String,
+    path: String,
+    #[serde(rename = "idfToolsPath")]
+    idf_tools_path: String,
+    python: String,
+    #[serde(rename = "activationScript")]
+    activation_script: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct EimConfig {
+    #[serde(rename = "idfInstalled")]
+    idf_installed: Vec<EimIdfInstall>,
+    #[serde(rename = "idfSelectedId")]
+    idf_selected_id: Option<String>,
+}
+
+/// Locations `eim` records its installed IDF versions at. Defaults to
+/// `~/.espressif/tools/eim_idf.json`, but also checks `$IDF_TOOLS_PATH` in
+/// case the user pointed eim at a non-default tools directory.
+fn eim_config_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(p) = std::env::var("IDF_TOOLS_PATH") {
+        if !p.is_empty() {
+            paths.push(PathBuf::from(p).join("eim_idf.json"));
+        }
+    }
+    if let Some(home) = home_dir() {
+        paths.push(home.join(".espressif/tools/eim_idf.json"));
+    }
+    paths
+}
+
+fn read_eim_config() -> Option<EimConfig> {
+    eim_config_paths()
+        .into_iter()
+        .find_map(|path| serde_json::from_str(&fs::read_to_string(path).ok()?).ok())
+}
+
+/// The eim install the user last selected (via `eim select <version>` or the
+/// eim GUI), falling back to the first listed install if the recorded
+/// selection is missing or stale.
+fn eim_selected_install() -> Option<EimIdfInstall> {
+    let cfg = read_eim_config()?;
+    cfg.idf_selected_id
+        .as_ref()
+        .and_then(|id| cfg.idf_installed.iter().find(|i| &i.id == id))
+        .or_else(|| cfg.idf_installed.first())
+        .cloned()
+}
+
+/// Compares a manifest-recorded path against a resolved one, canonicalizing
+/// both first so symlinks (e.g. `/tmp` on macOS) don't cause a false mismatch.
+fn paths_match(recorded: &str, resolved: &Path) -> bool {
+    let recorded = PathBuf::from(recorded);
+    match (fs::canonicalize(&recorded), fs::canonicalize(resolved)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => recorded == resolved,
+    }
+}
+
 /// Probes the locations a working ESP-IDF checkout is realistically found
-/// at: an explicit `IDF_PATH`, the manual-clone convention from Espressif's
-/// own getting-started docs (`~/esp/esp-idf`), and the layout used by
-/// Espressif's IDE installers (`~/.espressif/frameworks/esp-idf-vX.Y`,
-/// newest version first).
+/// at: an explicit `IDF_PATH`, the version eim currently has selected
+/// (`~/.espressif/<version>/esp-idf`), the manual-clone convention from
+/// Espressif's own getting-started docs (`~/esp/esp-idf`), and the layout
+/// used by Espressif's older IDE installers
+/// (`~/.espressif/frameworks/esp-idf-vX.Y`, newest version first).
 fn candidate_idf_paths() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(p) = std::env::var("IDF_PATH") {
         if !p.is_empty() {
             candidates.push(PathBuf::from(p));
         }
+    }
+    if let Some(install) = eim_selected_install() {
+        candidates.push(PathBuf::from(install.path));
     }
     if let Some(home) = home_dir() {
         candidates.push(home.join("esp/esp-idf"));
@@ -172,12 +243,59 @@ fn parse_export_output(raw: &str) -> HashMap<String, String> {
     resolved
 }
 
+/// Runs the eim-generated activation script's `-e` mode, which prints the
+/// exact env vars (including a fully expanded `PATH`) eim precomputed for
+/// this install at install time. Sourcing it this way sidesteps needing a
+/// system python3 or `IDF_TOOLS_PATH` guesswork — eim already knows both.
+fn resolve_idf_env_via_eim(install: &EimIdfInstall) -> Option<HashMap<String, String>> {
+    let script = PathBuf::from(&install.activation_script);
+    if !script.is_file() {
+        return None;
+    }
+    let output = Command::new("sh").arg(&script).arg("-e").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let raw = String::from_utf8_lossy(&output.stdout);
+    let mut env = parse_export_output(&raw);
+
+    // `-e` reports the toolchain dirs as `PATH` and the pre-existing shell
+    // PATH (where system tools like `cmake` and `git` live) separately as
+    // `SYSTEM_PATH` — sourcing the script normally would prepend the former
+    // onto the latter, so replicate that here rather than dropping SYSTEM_PATH.
+    if let Some(system_path) = env.remove("SYSTEM_PATH") {
+        let toolchain_path = env.get("PATH").cloned().unwrap_or_default();
+        let combined = if toolchain_path.is_empty() {
+            system_path
+        } else {
+            format!("{toolchain_path}:{system_path}")
+        };
+        env.insert("PATH".to_string(), combined);
+    }
+
+    env.entry("IDF_PATH".to_string())
+        .or_insert_with(|| install.path.clone());
+    env.entry("IDF_TOOLS_PATH".to_string())
+        .or_insert_with(|| install.idf_tools_path.clone());
+    Some(env)
+}
+
 /// Runs `idf_tools.py export`, which is the programmatic equivalent of
 /// sourcing `export.sh` — it prints the PATH additions and env vars needed
 /// to run `idf.py` (toolchain bin dirs, the IDF python venv, etc.) without
 /// requiring a real shell to source anything into.
 fn resolve_idf_env() -> Option<HashMap<String, String>> {
     let idf = idf_path()?;
+
+    if let Some(install) = eim_selected_install() {
+        if paths_match(&install.path, &idf) {
+            if let Some(env) = resolve_idf_env_via_eim(&install) {
+                return Some(env);
+            }
+        }
+    }
+
     let python = locate_python3()?;
     let tools_path = idf_tools_path();
 
@@ -208,11 +326,19 @@ fn idf_env() -> Option<HashMap<String, String>> {
 
 pub fn idf_command() -> Result<Command, String> {
     let idf = idf_path().ok_or_else(|| {
-        "ESP-IDF was not found. Set the IDF_PATH environment variable or install it to \
-         ~/esp/esp-idf, then restart TestIDE."
+        "ESP-IDF was not found. Install it via the Espressif IDF Installation Manager (eim), \
+         set the IDF_PATH environment variable, or clone it to ~/esp/esp-idf, then restart \
+         TestIDE."
             .to_string()
     })?;
-    let python = locate_python3().ok_or_else(|| {
+
+    let eim_install = eim_selected_install().filter(|i| paths_match(&i.path, &idf));
+    let eim_python = eim_install
+        .as_ref()
+        .map(|i| PathBuf::from(&i.python))
+        .filter(|p| p.is_file());
+
+    let python = eim_python.or_else(locate_python3).ok_or_else(|| {
         "python3 was not found. ESP-IDF requires a working Python 3 installation.".to_string()
     })?;
     let env = idf_env().ok_or_else(|| {
@@ -236,6 +362,7 @@ pub struct IdfEnvironmentStatus {
     pub idf_path: Option<String>,
     pub idf_version: Option<String>,
     pub env_ready: bool,
+    pub via_eim: bool,
 }
 
 #[tauri::command]
@@ -246,8 +373,13 @@ pub fn check_idf_environment() -> IdfEnvironmentStatus {
             idf_path: None,
             idf_version: None,
             env_ready: false,
+            via_eim: false,
         };
     };
+
+    let via_eim = eim_selected_install()
+        .map(|i| paths_match(&i.path, &path))
+        .unwrap_or(false);
 
     let env_ready = idf_env().is_some();
     let version = if env_ready {
@@ -265,6 +397,7 @@ pub fn check_idf_environment() -> IdfEnvironmentStatus {
         idf_path: Some(path.to_string_lossy().to_string()),
         idf_version: version,
         env_ready,
+        via_eim,
     }
 }
 
@@ -446,9 +579,17 @@ pub struct NewIdfProjectRequest {
 
 #[tauri::command]
 pub fn new_idf_project(req: NewIdfProjectRequest) -> Result<crate::project::ProjectInfo, String> {
+    // `idf.py create-project --path X` creates the project directly inside X
+    // (and fails if X is non-empty) rather than inside a NAME subdirectory of
+    // X, so X must already be the full target directory.
+    let project_dir = PathBuf::from(&req.parent_dir).join(&req.project_name);
+
     let mut create_cmd = idf_command()?;
     let output = create_cmd
-        .args(["create-project", "--path", &req.parent_dir, &req.project_name])
+        .arg("create-project")
+        .arg("--path")
+        .arg(&project_dir)
+        .arg(&req.project_name)
         .output()
         .map_err(|e| format!("Failed to run `idf.py create-project`: {e}"))?;
 
@@ -456,8 +597,6 @@ pub fn new_idf_project(req: NewIdfProjectRequest) -> Result<crate::project::Proj
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("Project creation failed: {stderr}"));
     }
-
-    let project_dir = PathBuf::from(&req.parent_dir).join(&req.project_name);
 
     let mut target_cmd = idf_command()?;
     let target_output = target_cmd

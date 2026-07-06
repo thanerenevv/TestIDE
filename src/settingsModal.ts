@@ -1,6 +1,7 @@
 import { api } from "./api";
+import { AI_PROVIDER_PRESETS, findPreset } from "./aiProviders";
 import { clear, h } from "./dom";
-import type { Settings } from "./settings";
+import type { AiSettings, Settings } from "./settings";
 import { installEspIdf, installPlatformio } from "./toolchainInstall";
 
 const BAUD_RATES = [9600, 19200, 38400, 57600, 74880, 115200, 230400, 460800, 921600];
@@ -67,6 +68,23 @@ export function openSettingsModal(current: Settings, onChange: (s: Settings) => 
     emit();
   });
 
+  // --- AI features ---
+  const aiEnabledInput = h("input", { type: "checkbox" }) as HTMLInputElement;
+  aiEnabledInput.checked = settings.ai.enabled;
+  const aiConfigureBtn = h("button", { class: "btn" }, ["Configure…"]) as HTMLButtonElement;
+  aiConfigureBtn.disabled = !settings.ai.enabled;
+  aiEnabledInput.addEventListener("change", () => {
+    settings.ai = { ...settings.ai, enabled: aiEnabledInput.checked };
+    aiConfigureBtn.disabled = !settings.ai.enabled;
+    emit();
+  });
+  aiConfigureBtn.addEventListener("click", () => {
+    openAiConfigureModal(settings.ai, (updated) => {
+      settings.ai = updated;
+      emit();
+    });
+  });
+
   // --- toolchains ---
   const toolchainBody = h("div", { class: "field", style: "gap:8px" });
 
@@ -106,7 +124,7 @@ export function openSettingsModal(current: Settings, onChange: (s: Settings) => 
           h("div", { class: "toolchain-detail" }, [
             idf.idf_found
               ? idf.env_ready
-                ? (idf.idf_version ?? "Detected").trim()
+                ? (idf.idf_version ?? "Detected").trim() + (idf.via_eim ? " (via eim)" : "")
                 : "Found but not initialized (run install.sh)"
               : "Not detected on this system",
           ]),
@@ -144,11 +162,95 @@ export function openSettingsModal(current: Settings, onChange: (s: Settings) => 
         baudSelect,
       ]),
 
+      h("div", { class: "settings-section-title" }, ["AI Features"]),
+      h("div", { class: "field-check" }, [aiEnabledInput, h("span", {}, ["Enable AI Features"])]),
+      h("div", { style: "display:flex" }, [aiConfigureBtn]),
+      h("div", { class: "empty-hint", style: "padding: 0" }, [
+        "Off by default. When enabled, an AI tab appears next to Explorer and Libraries — it can chat, read/edit project files, and read recent serial monitor output. Your API key is stored locally on this machine.",
+      ]),
+
       h("div", { class: "settings-section-title" }, ["Toolchains"]),
       toolchainBody,
       h("div", {}, [recheckBtn]),
     ]),
     h("div", { class: "modal-footer" }, [closeBtn]),
+  ]);
+  overlay.append(modal);
+  document.body.append(overlay);
+}
+
+function openAiConfigureModal(current: AiSettings, onSave: (ai: AiSettings) => void) {
+  const draft: AiSettings = { ...current };
+  const overlay = h("div", { class: "modal-overlay" });
+
+  const providerSelect = h(
+    "select",
+    {},
+    AI_PROVIDER_PRESETS.map((p) => h("option", { value: p.id }, [p.label])),
+  ) as HTMLSelectElement;
+  providerSelect.value = draft.providerId;
+
+  const apiKeyInput = h("input", { type: "password", placeholder: "sk-…" }) as HTMLInputElement;
+  apiKeyInput.value = draft.apiKey;
+  const apiKeyField = h("div", { class: "field" }, [h("label", {}, ["API Key"]), apiKeyInput]);
+
+  const baseUrlInput = h("input", { type: "text" }) as HTMLInputElement;
+  const baseUrlField = h("div", { class: "field" }, [h("label", {}, ["Base URL"]), baseUrlInput]);
+
+  const apiVersionInput = h("input", { type: "text", placeholder: "2024-08-01-preview" }) as HTMLInputElement;
+  const apiVersionField = h("div", { class: "field" }, [h("label", {}, ["API Version"]), apiVersionInput]);
+
+  const modelInput = h("input", { type: "text" }) as HTMLInputElement;
+  modelInput.value = draft.model;
+  const modelField = h("div", { class: "field" }, [h("label", {}, ["Model"]), modelInput]);
+
+  function applyPreset(keepValues: boolean) {
+    const preset = findPreset(providerSelect.value);
+    apiKeyField.style.display = preset.needsApiKey ? "flex" : "none";
+    apiVersionField.style.display = preset.needsApiVersion ? "flex" : "none";
+    baseUrlInput.disabled = !preset.editableBaseUrl;
+    modelInput.placeholder = preset.placeholderModel;
+    if (!keepValues || (baseUrlInput.value === "" && preset.baseUrl)) {
+      baseUrlInput.value = preset.baseUrl;
+    }
+  }
+  baseUrlInput.value = draft.baseUrl;
+  apiVersionInput.value = draft.apiVersion;
+  applyPreset(true);
+
+  providerSelect.addEventListener("change", () => {
+    baseUrlInput.value = "";
+    applyPreset(false);
+  });
+
+  const cancelBtn = h("button", { class: "btn" }, ["Cancel"]);
+  cancelBtn.addEventListener("click", () => overlay.remove());
+  const saveBtn = h("button", { class: "btn btn-primary" }, ["Save"]);
+  saveBtn.addEventListener("click", () => {
+    onSave({
+      enabled: draft.enabled,
+      providerId: providerSelect.value,
+      apiKey: apiKeyInput.value,
+      baseUrl: baseUrlInput.value,
+      model: modelInput.value.trim(),
+      apiVersion: apiVersionInput.value.trim(),
+    });
+    overlay.remove();
+  });
+  overlay.addEventListener("mousedown", (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  const modal = h("div", { class: "modal", style: "width:420px" }, [
+    h("div", { class: "modal-header" }, ["Configure AI Provider"]),
+    h("div", { class: "modal-body" }, [
+      h("div", { class: "field" }, [h("label", {}, ["Provider"]), providerSelect]),
+      baseUrlField,
+      apiKeyField,
+      apiVersionField,
+      modelField,
+    ]),
+    h("div", { class: "modal-footer" }, [cancelBtn, saveBtn]),
   ]);
   overlay.append(modal);
   document.body.append(overlay);

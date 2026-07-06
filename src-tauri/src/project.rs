@@ -45,6 +45,14 @@ pub enum ProjectInfo {
         available_targets: Vec<String>,
         has_sdkconfig: bool,
     },
+    Stm32 {
+        root: String,
+        name: String,
+        flavor: crate::stm32::Stm32Flavor,
+        build_configs: Vec<String>,
+        mcu: Option<String>,
+        flash_tools: crate::stm32::Stm32FlashTools,
+    },
     Unknown {
         root: String,
         name: String,
@@ -59,6 +67,19 @@ impl From<crate::idf::IdfProjectInfo> for ProjectInfo {
             target: info.target,
             available_targets: info.available_targets,
             has_sdkconfig: info.has_sdkconfig,
+        }
+    }
+}
+
+impl From<crate::stm32::Stm32ProjectInfo> for ProjectInfo {
+    fn from(info: crate::stm32::Stm32ProjectInfo) -> Self {
+        ProjectInfo::Stm32 {
+            root: info.root,
+            name: info.name,
+            flavor: info.flavor,
+            build_configs: info.build_configs,
+            mcu: info.mcu,
+            flash_tools: info.flash_tools,
         }
     }
 }
@@ -86,6 +107,10 @@ pub fn open_project(path: String) -> Result<ProjectInfo, String> {
 
     if crate::idf::is_esp_idf_project(&root) {
         return Ok(crate::idf::open_idf_project(&root).into());
+    }
+
+    if let Some(info) = crate::stm32::detect_stm32_project(&root) {
+        return Ok(info.into());
     }
 
     Ok(ProjectInfo::Unknown { root: path, name })
@@ -403,6 +428,24 @@ mod tests {
                 assert!(has_sdkconfig);
             }
             other => panic!("expected EspIdf, got {other:?}"),
+        }
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn detects_stm32_makefile_project() {
+        let dir = unique_temp_dir("stm32-makefile");
+        fs::write(dir.join("Makefile"), "all:\n\techo build\n").unwrap();
+        fs::write(dir.join("demo.ioc"), "Mcu.UserName=STM32F407VGTx\n").unwrap();
+
+        let info = open_project(dir.to_string_lossy().to_string()).unwrap();
+        match info {
+            ProjectInfo::Stm32 { flavor, mcu, .. } => {
+                assert_eq!(flavor, crate::stm32::Stm32Flavor::Makefile);
+                assert_eq!(mcu.as_deref(), Some("STM32F407VGTx"));
+            }
+            other => panic!("expected Stm32, got {other:?}"),
         }
 
         fs::remove_dir_all(&dir).unwrap();
